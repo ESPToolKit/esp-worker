@@ -254,7 +254,13 @@ void ESPWorker::finalizeWorker(const std::shared_ptr<WorkerHandler::Impl> &contr
     control->running.store(false, std::memory_order_release);
     control->endTick = xTaskGetTickCount();
 
-    if (control->taskHandle) {
+    TaskHandle_t taskHandle = control->taskHandle;
+    bool freeExternalNow = true;
+    if (taskHandle && xTaskGetCurrentTaskHandle() == taskHandle) {
+        // The worker is finalizing itself, its stack is still in use until vTaskDelete runs.
+        freeExternalNow = false;
+    }
+    if (taskHandle) {
         control->taskHandle = nullptr;
     }
 
@@ -268,17 +274,21 @@ void ESPWorker::finalizeWorker(const std::shared_ptr<WorkerHandler::Impl> &contr
     {
         std::lock_guard<std::mutex> guard(_mutex);
         _activeControls.erase(std::remove_if(_activeControls.begin(), _activeControls.end(), [&](const auto &ptr) { return ptr.get() == control.get(); }), _activeControls.end());
-        externalStack = control->externalStack;
-        control->externalStack = nullptr;
-        externalTaskBuffer = control->externalTaskBuffer;
-        control->externalTaskBuffer = nullptr;
+        if (freeExternalNow) {
+            externalStack = control->externalStack;
+            control->externalStack = nullptr;
+            externalTaskBuffer = control->externalTaskBuffer;
+            control->externalTaskBuffer = nullptr;
+        }
     }
 
-    if (externalStack) {
-        heap_caps_free(externalStack);
-    }
-    if (externalTaskBuffer) {
-        heap_caps_free(externalTaskBuffer);
+    if (freeExternalNow) {
+        if (externalStack) {
+            heap_caps_free(externalStack);
+        }
+        if (externalTaskBuffer) {
+            heap_caps_free(externalTaskBuffer);
+        }
     }
 
     notifyEvent(destroyed ? WorkerEvent::Destroyed : WorkerEvent::Completed);
