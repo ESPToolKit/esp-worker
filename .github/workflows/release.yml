@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Build key examples (esp32dev)
+        env:
+          BOARD: esp32dev
+        run: |
+          set -e
+          for d in examples/*; do
+            if [ -d "$d" ]; then
+              echo "Validating $d"
+              pio ci "$d" \
+                --board "$BOARD" \
+                --lib="." \
+                --project-option "build_unflags=-std=gnu++11" \
+                --project-option "build_flags=-std=gnu++17"
+            fi
+          done
+
+      - name: Package library (PlatformIO)
+        run: |
+          mkdir -p dist
+          pio pkg pack --output dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
