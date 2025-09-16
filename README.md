@@ -122,8 +122,12 @@ WorkerResult job = worker.spawn([]() {
 
 if (job) {
     WorkerDiag diag = job.handler->getDiag();
-    Serial.printf("Task %s running: %d runtime: %lu ms\n",
-                  diag.config.name.c_str(), diag.running, static_cast<unsigned long>(diag.runtimeMs));
+    Serial.printf(
+        "Task %s running: %d runtime: %lu ms\n",
+        diag.config.name.c_str(),
+        diag.running,
+        static_cast<unsigned long>(diag.runtimeMs)
+    );
 }
 ```
 
