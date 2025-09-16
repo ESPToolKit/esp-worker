@@ -1,0 +1,32 @@
+{
+  "name": "ESPWorker",
+  "version": "1.0.0",
+  "description": "A Lightweight FreeRTOS task wrapper",
+  "keywords": [
+    "esp32",
+    "arduino",
+    "worker",
+    "task",
+    "process"
+  ],
+  "homepage": "https://github.com/ESPToolKit/esp-worker",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ESPToolKit/esp-worker.git"
+  },
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "zekageri"
+    }
+  ],
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"],
+  "dependencies": [],
+  "headers": ["ESPWorker.h"],
+  "build": {
+    "flags": [
+      "-std=gnu++17"
+    ]
+  }
+}
