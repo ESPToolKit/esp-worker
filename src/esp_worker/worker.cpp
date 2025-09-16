@@ -209,7 +209,7 @@ WorkerResult ESPWorker::spawnInternal(TaskCallback &&callback, WorkerConfig conf
     control->running.store(true, std::memory_order_release);
     control->startTick = xTaskGetTickCount();
 
-    auto handler = std::make_shared<WorkerHandler>(control);
+    auto handler = std::shared_ptr<WorkerHandler>(new WorkerHandler(control));
     notifyEvent(WorkerEvent::Created);
     return {WorkerError::None, handler, nullptr};
 }

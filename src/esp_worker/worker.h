@@ -75,6 +75,8 @@ struct WorkerResult {
 };
 
 class ESPWorker {
+    friend class WorkerHandler;
+
    public:
     using TaskCallback = std::function<void()>;
     using EventCallback = std::function<void(WorkerEvent)>;
