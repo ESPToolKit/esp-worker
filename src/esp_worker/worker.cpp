@@ -3,11 +3,69 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
+#include <mutex>
 #include <utility>
+#include <vector>
 
 extern "C" {
 #include "esp_heap_caps.h"
+#include "esp_freertos_hooks.h"
 }
+
+namespace {
+struct DeferredFree {
+    StackType_t *stack{nullptr};
+    StaticTask_t *tcb{nullptr};
+};
+
+std::mutex &deferredMutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+
+std::vector<DeferredFree> &deferredList() {
+    static std::vector<DeferredFree> list;
+    return list;
+}
+
+void scheduleDeferredFree(StackType_t *stack, StaticTask_t *tcb) {
+    if (!stack && !tcb) {
+        return;
+    }
+    std::lock_guard<std::mutex> guard(deferredMutex());
+    deferredList().push_back({stack, tcb});
+}
+
+bool idleDeferredFreeHook() {
+    std::vector<DeferredFree> pending;
+    {
+        std::lock_guard<std::mutex> guard(deferredMutex());
+        if (deferredList().empty()) {
+            return true;
+        }
+        pending.swap(deferredList());
+    }
+
+    for (auto &entry : pending) {
+        if (entry.stack) {
+            heap_caps_free(entry.stack);
+        }
+        if (entry.tcb) {
+            heap_caps_free(entry.tcb);
+        }
+    }
+
+    return true;
+}
+
+void ensureIdleHookRegistered() {
+    static std::once_flag once;
+    std::call_once(once, []() {
+        esp_register_freertos_idle_hook_for_cpu(idleDeferredFreeHook, 0);
+        esp_register_freertos_idle_hook_for_cpu(idleDeferredFreeHook, 1);
+    });
+}
+}  // namespace
 
 struct WorkerHandler::Impl {
     ESPWorker *owner{nullptr};
@@ -40,12 +98,9 @@ WorkerHandler::Impl::~Impl() {
         vSemaphoreDelete(completion);
         completion = nullptr;
     }
-    if (externalStack) {
-        heap_caps_free(externalStack);
+    if (externalStack || externalTaskBuffer) {
+        scheduleDeferredFree(externalStack, externalTaskBuffer);
         externalStack = nullptr;
-    }
-    if (externalTaskBuffer) {
-        heap_caps_free(externalTaskBuffer);
         externalTaskBuffer = nullptr;
     }
 }
@@ -174,6 +229,7 @@ WorkerResult ESPWorker::spawnInternal(TaskCallback &&callback, WorkerConfig conf
     BaseType_t createResult = pdFAIL;
 
     if (control->config.useExternalStack) {
+        ensureIdleHookRegistered();
         control->externalStack = static_cast<StackType_t *>(heap_caps_malloc(control->config.stackSize * sizeof(StackType_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
         control->externalTaskBuffer = static_cast<StaticTask_t *>(heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
         if (!control->externalStack || !control->externalTaskBuffer) {
@@ -282,13 +338,8 @@ void ESPWorker::finalizeWorker(const std::shared_ptr<WorkerHandler::Impl> &contr
         }
     }
 
-    if (freeExternalNow) {
-        if (externalStack) {
-            heap_caps_free(externalStack);
-        }
-        if (externalTaskBuffer) {
-            heap_caps_free(externalTaskBuffer);
-        }
+    if (freeExternalNow && (externalStack || externalTaskBuffer)) {
+        scheduleDeferredFree(externalStack, externalTaskBuffer);
     }
 
     notifyEvent(destroyed ? WorkerEvent::Destroyed : WorkerEvent::Completed);
