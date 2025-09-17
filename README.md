@@ -292,5 +292,5 @@ ESPWorker is released under the [MIT License](LICENSE.md).
 
 ## ESPToolKit
 
-Check out other libraries under ESPToolKit: https://github.com/orgs/ESPToolKit/repositories
-Support me at: https://ko-fi.com/esptoolkit
+- Check out other libraries under ESPToolKit: https://github.com/orgs/ESPToolKit/repositories
+- Support me at: https://ko-fi.com/esptoolkit
