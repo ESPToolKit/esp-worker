@@ -54,10 +54,12 @@ void setup() {
         .enableExternalStacks = true,
     });
 
+    // Track global events
     worker.onEvent([](WorkerEvent event) {
         Serial.printf("[worker] %s\n", worker.eventToString(event));
     });
-
+    
+    // Track every error
     worker.onError([](WorkerError error) {
         Serial.printf("[worker][error] %s\n", worker.errorToString(error));
     });
@@ -83,6 +85,121 @@ void setup() {
 }
 
 void loop() {}
+```
+
+## Job wait
+
+```cpp
+#include <Arduino.h>
+#include <ESPWorker.h>
+
+void setup() {
+	Serial.begin(115200);
+	while (!Serial) {}
+
+    Serial.println("[APP] Starting job.");
+
+    // Spawn a default job with psram stack
+    auto testJob = worker.spawn([](){
+        Serial.println("[Worker] This task stack uses PSRAM!");
+    });
+
+    testJob.handler->wait(); // Wait for the job to finish, indefinietly
+    Serial.println("[APP] Job is finished.");
+}
+```
+
+## Function jobs
+
+```cpp
+#include <Arduino.h>
+#include <ESPWorker.h>
+
+// This is a traditional FreeRTOS task, so all rules apply
+void heavyJobFunc(){
+    while(true){
+        Serial.println("[HeavyJob] Running a job...");
+        vTaskDelay( pdMS_TO_TICKS(5000) );
+    }
+}
+
+void setup() {
+	Serial.begin(115200);
+	while (!Serial) {}
+    worker.spawn(heavyJobFunc);
+}
+```
+
+## PSRAM jobs
+
+```cpp
+#include <Arduino.h>
+#include <ESPWorker.h>
+
+// This is a traditional FreeRTOS task, so all rules apply
+void heavyPSRAMJobFunc(){
+    while(true){
+        Serial.println("[HeavyJob] Running a job with it's stack in PSRAM...");
+        vTaskDelay( pdMS_TO_TICKS(5000) );
+    }
+}
+
+void setup() {
+	Serial.begin(115200);
+	while (!Serial) {}
+    worker.spawnExt(heavyPSRAMJobFunc);
+}
+```
+
+## Jobs with config
+
+```cpp
+#include <Arduino.h>
+#include <ESPWorker.h>
+
+// This is a traditional FreeRTOS task, so all rules apply
+void heavyPSRAMJobFunc(){
+    while(true){
+        Serial.println("[HeavyJob] Running a job with it's stack in PSRAM...");
+        vTaskDelay( pdMS_TO_TICKS(5000) );
+    }
+}
+
+void setup() {
+	Serial.begin(115200);
+	while (!Serial) {}
+
+    WorkerConfig config;
+    config.name = "heavy-task";
+    config.priority = 10;
+    config.stackSize = 15000;
+
+    worker.spawnExt(heavyPSRAMJobFunc, config);
+}
+```
+
+## Error handling
+
+```cpp
+#include <Arduino.h>
+#include <ESPWorker.h>
+
+void setup() {
+	Serial.begin(115200);
+	while (!Serial) {}
+
+    auto job = worker.spawnExt([](){
+        Serial.println("[APP] Just a one shot job...");
+    });
+
+    if( !job ){
+        Serial.printf(
+            "[APP] Job failed to start. Error: %s",
+            worker.errorToString(job.error)
+        );
+    }
+
+}
 ```
 
 - Call `worker.init` once to set library defaults.
@@ -142,23 +259,11 @@ Events fire in worker context (`Created → Started → Completed/Destroyed`). T
 | [`examples/basic_worker`](examples/basic_worker) | Spawning workers, joining, inspecting diagnostics, logging events/errors |
 | [`examples/psram_stack`](examples/psram_stack) | Using PSRAM stacks with `spawnExt`, watching completion |
 
-To build all examples locally:
-
-```bash
-# PlatformIO
-pip install platformio
-pio ci examples/basic_worker --board esp32dev --lib=.
-
-# Arduino CLI
-arduino-cli core install esp32:esp32
-arduino-cli compile --fqbn esp32:esp32:esp32 examples/basic_worker
-```
-
 ---
 
 ## Troubleshooting
 
-- Ensure your project compiles with C++17 (`-std=gnu++17`) and that FreeRTOS is enabled (standard on ESP32).
+- Ensure your project compiles with C++17 (`-std=gnu++17`)
 - `MaxWorkersReached` indicates the configured pool is exhausted—destroy or wait for workers to finish, or raise `maxWorkers` in `ESPWorker::Config`.
 - If you need deterministic cleanup consider calling `handler->destroy()` during shutdown.
 
