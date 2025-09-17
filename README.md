@@ -7,7 +7,8 @@
 ESPWorker is a C++17 helper library for ESP32 projects that want FreeRTOS power without the boilerplate. It wraps task creation, joins, diagnostics, PSRAM stacks, and lifecycle events into a simple API that works with both Arduino-ESP32 and ESP-IDF.
 
 - Works with FreeRTOS tasks while keeping the familiar `std::function`/lambda ergonomics
-- Joinable workers with runtime diagnostics (`WorkerDiag`) and cooperative destruction
+- Joinable workers with runtime diagnostics (`JobDiag`) and cooperative destruction
+- Pull worker-pool metrics (`WorkerDiag`) including counts and runtime stats
 - Optional PSRAM stacks (`spawnExt`) for memory hungry jobs
 - Thread-safe event and error callbacks so firmware can log or react centrally
 - Configurable defaults and guardrails (max workers, priorities, affinities)
@@ -238,12 +239,22 @@ WorkerResult job = worker.spawn([]() {
 });
 
 if (job) {
-    WorkerDiag diag = job.handler->getDiag();
+    JobDiag jobDiag = job.handler->getDiag();
     Serial.printf(
         "Task %s running: %d runtime: %lu ms\n",
-        diag.config.name.c_str(),
-        diag.running,
-        static_cast<unsigned long>(diag.runtimeMs)
+        jobDiag.config.name.c_str(),
+        jobDiag.running,
+        static_cast<unsigned long>(jobDiag.runtimeMs)
+    );
+
+    WorkerDiag workerDiag = worker.getDiag();
+    Serial.printf(
+        "[%s] jobs: total=%u running=%u psram=%u avg=%lu ms\n",
+        jobDiag.config.name.c_str(),
+        static_cast<unsigned>(workerDiag.totalJobs),
+        static_cast<unsigned>(workerDiag.runningJobs),
+        static_cast<unsigned>(workerDiag.psramStackJobs),
+        static_cast<unsigned long>(workerDiag.averageRuntimeMs)
     );
 }
 ```

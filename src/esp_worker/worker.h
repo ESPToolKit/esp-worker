@@ -25,12 +25,21 @@ struct WorkerConfig {
     bool useExternalStack = false;          // request PSRAM backed stack for the task
 };
 
-struct WorkerDiag {
+struct JobDiag {
     WorkerConfig config{};
     uint32_t runtimeMs = 0;
     bool running = false;
     bool destroyed = false;
     TaskHandle_t taskHandle = nullptr;
+};
+
+struct WorkerDiag {
+    size_t totalJobs = 0;
+    size_t runningJobs = 0;
+    size_t waitingJobs = 0;
+    size_t psramStackJobs = 0;
+    uint32_t averageRuntimeMs = 0;
+    uint32_t maxRuntimeMs = 0;
 };
 
 enum class WorkerError {
@@ -54,7 +63,7 @@ class WorkerHandler {
     WorkerHandler() = default;
 
     bool valid() const;
-    WorkerDiag getDiag() const;
+    JobDiag getDiag() const;
     bool wait(TickType_t ticks = portMAX_DELAY);
     bool destroy();
 
@@ -99,6 +108,8 @@ class ESPWorker {
 
     size_t activeWorkers() const;
     void cleanupFinished();
+
+    WorkerDiag getDiag() const;
 
     void onEvent(EventCallback callback);
     void onError(ErrorCallback callback);

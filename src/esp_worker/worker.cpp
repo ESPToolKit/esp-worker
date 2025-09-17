@@ -107,8 +107,8 @@ WorkerHandler::Impl::~Impl() {
 
 bool WorkerHandler::valid() const { return static_cast<bool>(_control); }
 
-WorkerDiag WorkerHandler::getDiag() const {
-    WorkerDiag diag{};
+JobDiag WorkerHandler::getDiag() const {
+    JobDiag diag{};
     if (!_control) {
         return diag;
     }
@@ -380,6 +380,59 @@ void ESPWorker::cleanupFinished() {
                             return !ptr || !ptr->running.load(std::memory_order_acquire);
                         }),
                           _activeControls.end());
+}
+
+WorkerDiag ESPWorker::getDiag() const {
+    WorkerDiag diag{};
+
+    std::vector<std::shared_ptr<WorkerHandler::Impl>> activeControls;
+    {
+        std::lock_guard<std::mutex> guard(_mutex);
+        activeControls = _activeControls;
+    }
+
+    diag.totalJobs = activeControls.size();
+    if (activeControls.empty()) {
+        return diag;
+    }
+
+    TickType_t now = xTaskGetTickCount();
+    uint64_t runtimeSum = 0;
+    bool haveRuntime = false;
+
+    for (const auto &control : activeControls) {
+        if (!control) {
+            continue;
+        }
+
+        bool running = control->running.load(std::memory_order_acquire);
+        if (running) {
+            diag.runningJobs++;
+        }
+
+        if (control->config.useExternalStack) {
+            diag.psramStackJobs++;
+        }
+
+        TickType_t endTicks = running ? now : control->endTick;
+        if (endTicks >= control->startTick) {
+            TickType_t elapsedTicks = endTicks - control->startTick;
+            uint32_t runtimeMs = static_cast<uint32_t>(elapsedTicks * portTICK_PERIOD_MS);
+            runtimeSum += runtimeMs;
+            diag.maxRuntimeMs = std::max(diag.maxRuntimeMs, runtimeMs);
+            haveRuntime = true;
+        }
+    }
+
+    if (diag.totalJobs > diag.runningJobs) {
+        diag.waitingJobs = diag.totalJobs - diag.runningJobs;
+    }
+
+    if (diag.totalJobs > 0 && haveRuntime) {
+        diag.averageRuntimeMs = static_cast<uint32_t>(runtimeSum / diag.totalJobs);
+    }
+
+    return diag;
 }
 
 void ESPWorker::onEvent(EventCallback callback) {
