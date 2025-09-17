@@ -247,16 +247,16 @@ if (job) {
         static_cast<unsigned long>(jobDiag.runtimeMs)
     );
 
-    WorkerDiag workerDiag = worker.getDiag();
-    Serial.printf(
-        "[%s] jobs: total=%u running=%u psram=%u avg=%lu ms\n",
-        jobDiag.config.name.c_str(),
-        static_cast<unsigned>(workerDiag.totalJobs),
-        static_cast<unsigned>(workerDiag.runningJobs),
-        static_cast<unsigned>(workerDiag.psramStackJobs),
-        static_cast<unsigned long>(workerDiag.averageRuntimeMs)
-    );
 }
+
+WorkerDiag workerDiag = worker.getDiag();
+Serial.printf(
+    "Worker stats: total=%u running=%u psram=%u avg=%lu ms\n",
+    static_cast<unsigned>(workerDiag.totalJobs),
+    static_cast<unsigned>(workerDiag.runningJobs),
+    static_cast<unsigned>(workerDiag.psramStackJobs),
+    static_cast<unsigned long>(workerDiag.averageRuntimeMs)
+);
 ```
 
 Events fire in worker context (`Created → Started → Completed/Destroyed`). The error callback is invoked from the API call that encountered a failure.
@@ -293,3 +293,4 @@ ESPWorker is released under the [MIT License](LICENSE.md).
 ## ESPToolKit
 
 Check out other libraries under ESPToolKit: https://github.com/orgs/ESPToolKit/repositories
+Support me at: https://ko-fi.com/esptoolkit
