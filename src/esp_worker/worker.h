@@ -138,5 +138,3 @@ class ESPWorker {
     EventCallback _eventCallback{};
     ErrorCallback _errorCallback{};
 };
-
-inline ESPWorker worker;
