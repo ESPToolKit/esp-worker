@@ -1,54 +1,31 @@
 # ESPWorker
 
-[![CI](https://github.com/ESPToolKit/esp-worker/actions/workflows/ci.yml/badge.svg)](https://github.com/ESPToolKit/esp-worker/actions/workflows/ci.yml)
-[![Release](https://github.com/ESPToolKit/esp-worker/actions/workflows/release.yml/badge.svg)](https://github.com/ESPToolKit/esp-worker/actions/workflows/release.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.md)
-
 ESPWorker is a C++17 helper library for ESP32 projects that want FreeRTOS power without the boilerplate. It wraps task creation, joins, diagnostics, PSRAM stacks, and lifecycle events into a simple API that works with both Arduino-ESP32 and ESP-IDF.
 
-- Works with FreeRTOS tasks while keeping the familiar `std::function`/lambda ergonomics
-- Joinable workers with runtime diagnostics (`JobDiag`) and cooperative destruction
-- Pull worker-pool metrics (`WorkerDiag`) including counts and runtime stats
-- Optional PSRAM stacks (`spawnExt`) for memory hungry jobs
-- Thread-safe event and error callbacks so firmware can log or react centrally
-- Configurable defaults and guardrails (max workers, priorities, affinities)
+## CI / Release / License
+[![CI](https://github.com/ESPToolKit/esp-worker/actions/workflows/ci.yml/badge.svg)](https://github.com/ESPToolKit/esp-worker/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/ESPToolKit/esp-worker?sort=semver)](https://github.com/ESPToolKit/esp-worker/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.md)
 
----
+## Features
+- Works with FreeRTOS tasks while keeping `std::function`/lambda ergonomics.
+- Joinable workers with runtime diagnostics (`JobDiag`) and cooperative destruction.
+- Pull worker-pool metrics (`WorkerDiag`) including counts and runtime stats.
+- Optional PSRAM stacks (`spawnExt`) for memory hungry jobs.
+- Thread-safe event and error callbacks so firmware can log or react centrally.
+- Configurable defaults and guardrails (max workers, priorities, affinities).
 
-## Installation
-
-### PlatformIO
-
-Add the dependency to your `platformio.ini`:
-
-```ini
-[env:esp32dev]
-platform = espressif32
-framework = arduino
-lib_deps =
-    ESPToolKit/ESPWorker
-build_unflags = -std=gnu++11
-build_flags = -std=gnu++17
-```
-
-### Arduino IDE / Arduino CLI
-
-1. Download the latest release archive from the GitHub Releases page.
-2. In the Arduino IDE choose **Sketch → Include Library → Add .ZIP Library...** and select the archive.  
-   With Arduino CLI you can install the local archive via `arduino-cli lib install <path-to-zip>`.
-
----
-
-## Quick Start
+## Examples
+Quick start:
 
 ```cpp
-#include <Arduino.h>
 #include <ESPWorker.h>
 
-ESPWorker worker;  // declare your worker instance (or subclass)
+ESPWorker worker;
 
 void setup() {
     Serial.begin(115200);
+
     worker.init({
         .maxWorkers = 4,
         .defaultStackSize = 4096,
@@ -57,275 +34,72 @@ void setup() {
         .enableExternalStacks = true,
     });
 
-    // Track global events
     worker.onEvent([](WorkerEvent event) {
         Serial.printf("[worker] %s\n", worker.eventToString(event));
     });
-    
-    // Track every error
     worker.onError([](WorkerError error) {
         Serial.printf("[worker][error] %s\n", worker.errorToString(error));
     });
 
-    WorkerConfig config;
-    config.name = "sensor-task";
-    config.priority = 3;
-
     WorkerResult result = worker.spawn([]() {
         while (true) {
-            // Work inside its own FreeRTOS task context
             vTaskDelay(pdMS_TO_TICKS(250));
         }
-    }, config);
-
-    if (!result) {
-        Serial.printf("Failed to spawn worker: %s\n", worker.errorToString(result.error));
-        return;
-    }
-
-    // Wait up to one second for completion
-    result.handler->wait(pdMS_TO_TICKS(1000));
-}
-
-void loop() {}
-```
-
-The library no longer provides a global `worker` instance. Declare your own object (or wrap `ESPWorker` in a subclass) and share it wherever you need workers:
-
-```cpp
-class SensorWorker : public ESPWorker {
-public:
-    WorkerResult startSampler(uint32_t periodMs) {
-        return spawn([periodMs]() {
-            while (true) {
-                // domain specific work
-                vTaskDelay(pdMS_TO_TICKS(periodMs));
-            }
-        });
-    }
-};
-
-SensorWorker worker;
-```
-
-All examples below assume a global `worker` object (or subclass) has been declared as shown above.
-
-## Job wait
-
-```cpp
-#include <Arduino.h>
-#include <ESPWorker.h>
-
-ESPWorker worker;
-
-void setup() {
-	Serial.begin(115200);
-	while (!Serial) {}
-
-    Serial.println("[APP] Starting job.");
-
-    // Spawn a default job with psram stack
-    auto testJob = worker.spawn([](){
-        Serial.println("[Worker] This task stack uses PSRAM!");
+    }, {
+        .stackSize = 4096,
+        .priority = 3,
+        .name = "sensor-task",
     });
 
-    testJob.handler->wait(); // Wait for the job to finish, indefinietly
-    Serial.println("[APP] Job is finished.");
-}
-```
-
-## Function jobs
-
-```cpp
-#include <Arduino.h>
-#include <ESPWorker.h>
-
-ESPWorker worker;
-
-// This is a traditional FreeRTOS task, so all rules apply
-void heavyJobFunc(){
-    while(true){
-        Serial.println("[HeavyJob] Running a job...");
-        vTaskDelay( pdMS_TO_TICKS(5000) );
+    if (result) {
+        result.handler->wait(pdMS_TO_TICKS(1000));
     }
 }
-
-void setup() {
-	Serial.begin(115200);
-	while (!Serial) {}
-    worker.spawn(heavyJobFunc);
-}
 ```
 
-## PSRAM jobs
+Need deterministic cleanup? Store the handler and call `destroy()` when shutting down:
 
 ```cpp
-#include <Arduino.h>
-#include <ESPWorker.h>
-
-ESPWorker worker;
-
-// This is a traditional FreeRTOS task, so all rules apply
-void heavyPSRAMJobFunc(){
-    while(true){
-        Serial.println("[HeavyJob] Running a job with it's stack in PSRAM...");
-        vTaskDelay( pdMS_TO_TICKS(5000) );
-    }
-}
-
-void setup() {
-	Serial.begin(115200);
-	while (!Serial) {}
-    worker.spawnExt(heavyPSRAMJobFunc);
-}
-```
-
-## Jobs with config
-
-```cpp
-#include <Arduino.h>
-#include <ESPWorker.h>
-
-ESPWorker worker;
-
-// This is a traditional FreeRTOS task, so all rules apply
-void heavyPSRAMJobFunc(){
-    while(true){
-        Serial.println("[HeavyJob] Running a job with it's stack in PSRAM...");
-        vTaskDelay( pdMS_TO_TICKS(5000) );
-    }
-}
-
-void setup() {
-	Serial.begin(115200);
-	while (!Serial) {}
-
-    WorkerConfig config;
-    config.name = "heavy-task";
-    config.priority = 10;
-    config.stackSize = 15000;
-
-    worker.spawnExt(heavyPSRAMJobFunc, config);
-}
-```
-
-## Error handling
-
-```cpp
-#include <Arduino.h>
-#include <ESPWorker.h>
-
-ESPWorker worker;
-
-void setup() {
-	Serial.begin(115200);
-	while (!Serial) {}
-
-    auto job = worker.spawnExt([](){
-        Serial.println("[APP] Just a one shot job...");
-    });
-
-    if( !job ){
-        Serial.printf(
-            "[APP] Job failed to start. Error: %s",
-            worker.errorToString(job.error)
-        );
-    }
-
-}
-```
-
-- Call `worker.init` once to set library defaults.
-- `worker.spawn` accepts any callable (lambda, `std::bind`, function pointer) and an optional `WorkerConfig`.
-- The returned `WorkerResult` contains either a joinable `WorkerHandler` or an error code.
-
----
-
-## Worker Configuration
-
-| Field | Description | Default |
-| --- | --- | --- |
-| `stackSize` | Stack depth in FreeRTOS words. Use larger values for complex C++ code. | `4096` |
-| `priority` | Task priority (`tskIDLE_PRIORITY + 1` is recommended as a baseline). | `1` |
-| `coreId` | Core affinity (`tskNO_AFFINITY` let FreeRTOS pick). | `tskNO_AFFINITY` |
-| `name` | Helpful for `esp_task_wdt` / logging. Auto-generated (`worker-n`). | Auto |
-| `useExternalStack` | Allocate the stack from PSRAM when available. | `false` |
-
-Use `worker.spawnExt` to force `useExternalStack = true` regardless of the passed configuration.
-
----
-
-## Events, Errors & Diagnostics
-
-```cpp
-ESPWorker worker;
-
-worker.onEvent([](WorkerEvent event) {
-    Serial.printf("[event] %s\n", worker.eventToString(event));
-});
-
-worker.onError([](WorkerError error) {
-    Serial.printf("[error] %s\n", worker.errorToString(error));
-});
-
-WorkerResult job = worker.spawn([]() {
-    // ...
-});
-
+WorkerResult job = worker.spawn([](){ /* ... */ });
 if (job) {
-    JobDiag jobDiag = job.handler->getDiag();
-    Serial.printf(
-        "Task %s running: %d runtime: %lu ms\n",
-        jobDiag.config.name.c_str(),
-        jobDiag.running,
-        static_cast<unsigned long>(jobDiag.runtimeMs)
-    );
-
+    // Stop the task cooperatively
+    job.handler->destroy();
 }
-
-WorkerDiag workerDiag = worker.getDiag();
-Serial.printf(
-    "Worker stats: total=%u running=%u psram=%u avg=%lu ms\n",
-    static_cast<unsigned>(workerDiag.totalJobs),
-    static_cast<unsigned>(workerDiag.runningJobs),
-    static_cast<unsigned>(workerDiag.psramStackJobs),
-    static_cast<unsigned long>(workerDiag.averageRuntimeMs)
-);
 ```
 
-Events fire in worker context (`Created → Started → Completed/Destroyed`). The error callback is invoked from the API call that encountered a failure.
+Check the runnable examples under `examples/`:
+- `examples/basic_worker` – spawns workers, waits for completion, prints diagnostics.
+- `examples/psram_stack` – uses `spawnExt` to place heavy stacks in PSRAM.
 
----
+## Gotchas
+- Always call `worker.init()` once before spawning tasks. Each ESPWorker instance controls its own limits.
+- `spawn` creates persistent FreeRTOS tasks; remember to end the lambda (return) or `destroy()` the handler to reclaim slots.
+- Errors such as `MaxWorkersReached` or `TaskCreateFailed` are reported in the returned `WorkerResult` _and_ via the error callback.
+- PSRAM stacks require PSRAM to be enabled in your board configuration; fall back to internal RAM otherwise.
 
-## Example Sketches
+## API Reference
+- `void init(const ESPWorker::Config& config)` – sets defaults (max workers, default stack/priority/core, PSRAM allowance).
+- `WorkerResult spawn(TaskCallback cb, const WorkerConfig& config = {})` – create a worker. The returned handler provides `wait()` and `destroy()` helpers plus per-job diagnostics.
+- `WorkerResult spawnExt(...)` – identical to `spawn` but forces PSRAM stacks when available.
+- `size_t activeWorkers() const` / `void cleanupFinished()` – query or prune finished tasks.
+- `WorkerDiag getDiag() const` – aggregated counts and runtime stats across the pool.
+- `void onEvent(EventCallback cb)` / `void onError(ErrorCallback cb)` – receive lifecycle signals (`Created → Started → Completed/Destroyed`) and fatal issues.
+- `const char* eventToString(...)` / `errorToString(...)` – convert enums to printable text for logging.
 
-| Example | Highlights |
-| --- | --- |
-| [`examples/basic_worker`](examples/basic_worker) | Spawning workers, joining, inspecting diagnostics, logging events/errors |
-| [`examples/psram_stack`](examples/psram_stack) | Using PSRAM stacks with `spawnExt`, watching completion |
+`WorkerConfig` (per job) and `ESPWorker::Config` (global defaults) expose priority, stack size, core affinity, external stack usage, and an optional name that shows up in diagnostics and watchdog dumps.
 
----
+## Restrictions
+- Intended for ESP32-class boards where FreeRTOS and PSRAM are available; other architectures are untested.
+- Requires C++17 support (`-std=gnu++17`) and should not be called from ISR context.
+- Each worker consumes RAM proportional to its stack; keep `maxWorkers` and per-job stacks aligned with your heap budget.
 
-## Troubleshooting
-
-- Ensure your project compiles with C++17 (`-std=gnu++17`)
-- `MaxWorkersReached` indicates the configured pool is exhausted—destroy or wait for workers to finish, or raise `maxWorkers` in `ESPWorker::Config`.
-- If you need deterministic cleanup consider calling `handler->destroy()` during shutdown.
-
----
-
-## Contributing
-
-Issues and pull requests are welcome! Please open a discussion if you have questions about the API before implementing major changes. The CI workflow builds every example on multiple ESP32 variants to keep the library portable.
-
----
+## Tests
+A native host test suite is still being assembled. For now rely on the `examples/` sketches (build with PlatformIO or Arduino IDE) to verify integration, and consider adding regression tests when contributing changes.
 
 ## License
-
 ESPWorker is released under the [MIT License](LICENSE.md).
 
 ## ESPToolKit
-
-- Check out other libraries under ESPToolKit: https://github.com/orgs/ESPToolKit/repositories
-- Join our discord server at: https://discord.gg/WG8sSqAy
-- If you like the libraries, you can support me at: https://ko-fi.com/esptoolkit
+- Check out other libraries: <https://github.com/orgs/ESPToolKit/repositories>
+- Hang out on Discord: <https://discord.gg/WG8sSqAy>
+- Support the project: <https://ko-fi.com/esptoolkit>
