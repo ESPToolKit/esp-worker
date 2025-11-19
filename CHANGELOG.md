@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Breaking: `WorkerHandler::getDiag()` now returns a `JobDiag`; rename existing `WorkerDiag` usages to the new type.
+- Breaking: The inline global `worker` instance has been removed—declare your own `ESPWorker` (or subclass) before spawning tasks.
 
 ### Fixed
 - Free external stacks and task buffers through an idle-hook-driven deferred queue so PSRAM resources are only released after worker tasks fully unwind.

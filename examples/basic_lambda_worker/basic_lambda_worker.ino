@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include <ESPWorker.h>
 
+ESPWorker worker;
+
 ESPWorker::Config workerConfig = {
 	.maxWorkers = 16,
 	.defaultStackSize = 2048,
@@ -12,6 +14,8 @@ ESPWorker::Config workerConfig = {
 void setup() {
     Serial.begin(115200);
     while (!Serial) {}
+
+    worker.init(workerConfig);
 
     // Spawn a default job
     auto testJob = worker.spawn([](){

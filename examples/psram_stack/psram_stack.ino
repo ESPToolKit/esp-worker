@@ -4,6 +4,8 @@
 #include <cstring>
 #include <memory>
 
+ESPWorker worker;
+
 ESPWorker::Config workerConfig = {
 	.maxWorkers = 16,
 	.defaultStackSize = 2048,
@@ -20,6 +22,8 @@ void printPSRAM(const char* tag){
 void setup() {
     Serial.begin(115200);
     while (!Serial) {}
+
+    worker.init(workerConfig);
 
     printPSRAM("Initial");
 

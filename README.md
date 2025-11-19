@@ -45,6 +45,8 @@ build_flags = -std=gnu++17
 #include <Arduino.h>
 #include <ESPWorker.h>
 
+ESPWorker worker;  // declare your worker instance (or subclass)
+
 void setup() {
     Serial.begin(115200);
     worker.init({
@@ -88,11 +90,33 @@ void setup() {
 void loop() {}
 ```
 
+The library no longer provides a global `worker` instance. Declare your own object (or wrap `ESPWorker` in a subclass) and share it wherever you need workers:
+
+```cpp
+class SensorWorker : public ESPWorker {
+public:
+    WorkerResult startSampler(uint32_t periodMs) {
+        return spawn([periodMs]() {
+            while (true) {
+                // domain specific work
+                vTaskDelay(pdMS_TO_TICKS(periodMs));
+            }
+        });
+    }
+};
+
+SensorWorker worker;
+```
+
+All examples below assume a global `worker` object (or subclass) has been declared as shown above.
+
 ## Job wait
 
 ```cpp
 #include <Arduino.h>
 #include <ESPWorker.h>
+
+ESPWorker worker;
 
 void setup() {
 	Serial.begin(115200);
@@ -116,6 +140,8 @@ void setup() {
 #include <Arduino.h>
 #include <ESPWorker.h>
 
+ESPWorker worker;
+
 // This is a traditional FreeRTOS task, so all rules apply
 void heavyJobFunc(){
     while(true){
@@ -137,6 +163,8 @@ void setup() {
 #include <Arduino.h>
 #include <ESPWorker.h>
 
+ESPWorker worker;
+
 // This is a traditional FreeRTOS task, so all rules apply
 void heavyPSRAMJobFunc(){
     while(true){
@@ -157,6 +185,8 @@ void setup() {
 ```cpp
 #include <Arduino.h>
 #include <ESPWorker.h>
+
+ESPWorker worker;
 
 // This is a traditional FreeRTOS task, so all rules apply
 void heavyPSRAMJobFunc(){
@@ -184,6 +214,8 @@ void setup() {
 ```cpp
 #include <Arduino.h>
 #include <ESPWorker.h>
+
+ESPWorker worker;
 
 void setup() {
 	Serial.begin(115200);
@@ -226,6 +258,8 @@ Use `worker.spawnExt` to force `useExternalStack = true` regardless of the passe
 ## Events, Errors & Diagnostics
 
 ```cpp
+ESPWorker worker;
+
 worker.onEvent([](WorkerEvent event) {
     Serial.printf("[event] %s\n", worker.eventToString(event));
 });
