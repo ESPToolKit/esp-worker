@@ -28,9 +28,9 @@ void setup() {
 
     worker.init({
         .maxWorkers = 4,
-        .defaultStackSize = 4096,
-        .defaultPriority = 1,
-        .defaultCoreId = tskNO_AFFINITY,
+        .stackSize = 4096,
+        .priority = 1,
+        .coreId = tskNO_AFFINITY,
         .enableExternalStacks = true,
     });
 
@@ -46,7 +46,7 @@ void setup() {
             vTaskDelay(pdMS_TO_TICKS(250));
         }
     }, {
-        .stackSize = 4096,
+        .stackSize = 16 * 1024,
         .priority = 3,
         .name = "sensor-task",
     });
@@ -87,6 +87,7 @@ Check the runnable examples under `examples/`:
 - `const char* eventToString(...)` / `errorToString(...)` – convert enums to printable text for logging.
 
 `WorkerConfig` (per job) and `ESPWorker::Config` (global defaults) expose priority, stack size, core affinity, external stack usage, and an optional name that shows up in diagnostics and watchdog dumps.
+Stack sizes are expressed in bytes.
 
 ## Restrictions
 - Intended for ESP32-class boards where FreeRTOS and PSRAM are available; other architectures are untested.

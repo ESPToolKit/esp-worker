@@ -18,7 +18,7 @@ class WorkerHandler;
 class ESPWorker;
 
 struct WorkerConfig {
-    size_t stackSize = 4096;                // FreeRTOS stack depth (word count)
+    size_t stackSize = 4096 * sizeof(StackType_t);  // Task stack size in bytes
     UBaseType_t priority = 1;               // FreeRTOS task priority
     BaseType_t coreId = tskNO_AFFINITY;     // preferred core, or tskNO_AFFINITY for any
     std::string name{};                     // optional task name
@@ -93,9 +93,9 @@ class ESPWorker {
 
     struct Config {
         size_t maxWorkers = 8;
-        size_t defaultStackSize = 4096;
-        UBaseType_t defaultPriority = 1;
-        BaseType_t defaultCoreId = tskNO_AFFINITY;
+        size_t stackSize = 4096 * sizeof(StackType_t);
+        UBaseType_t priority = 1;
+        BaseType_t coreId = tskNO_AFFINITY;
         bool enableExternalStacks = true;
     };
 

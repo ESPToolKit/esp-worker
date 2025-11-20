@@ -8,9 +8,9 @@ ESPWorker worker;
 
 ESPWorker::Config workerConfig = {
 	.maxWorkers = 16,
-	.defaultStackSize = 2048,
-	.defaultPriority = 1,
-	.defaultCoreId = tskNO_AFFINITY,
+	.stackSize = 2048,
+	.priority = 1,
+	.coreId = tskNO_AFFINITY,
 	.enableExternalStacks = true,
 };
 

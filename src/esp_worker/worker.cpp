@@ -171,13 +171,13 @@ WorkerResult ESPWorker::spawn(TaskCallback callback, const WorkerConfig &config)
     WorkerConfig effective = config;
     effective.useExternalStack = effective.useExternalStack && _config.enableExternalStacks;
     if (effective.stackSize == 0) {
-        effective.stackSize = _config.defaultStackSize;
+        effective.stackSize = _config.stackSize;
     }
     if (effective.priority == 0) {
-        effective.priority = _config.defaultPriority;
+        effective.priority = _config.priority;
     }
     if (effective.coreId == tskNO_AFFINITY) {
-        effective.coreId = _config.defaultCoreId;
+        effective.coreId = _config.coreId;
     }
     if (effective.name.empty()) {
         effective.name = makeName();
@@ -227,10 +227,11 @@ WorkerResult ESPWorker::spawnInternal(TaskCallback &&callback, WorkerConfig conf
     }
 
     BaseType_t createResult = pdFAIL;
+    const size_t stackBytes = control->config.stackSize;
 
     if (control->config.useExternalStack) {
         ensureIdleHookRegistered();
-        control->externalStack = static_cast<StackType_t *>(heap_caps_malloc(control->config.stackSize * sizeof(StackType_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        control->externalStack = static_cast<StackType_t *>(heap_caps_malloc(stackBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
         control->externalTaskBuffer = static_cast<StaticTask_t *>(heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
         if (!control->externalStack || !control->externalTaskBuffer) {
             heap_caps_free(control->externalStack);
@@ -243,10 +244,10 @@ WorkerResult ESPWorker::spawnInternal(TaskCallback &&callback, WorkerConfig conf
             return {WorkerError::NoMemory, {}, "Failed to allocate external stack"};
         }
 
-        control->taskHandle = xTaskCreateStaticPinnedToCore(taskTrampoline, control->config.name.c_str(), control->config.stackSize, control.get(), control->config.priority, control->externalStack, control->externalTaskBuffer, control->config.coreId);
+        control->taskHandle = xTaskCreateStaticPinnedToCore(taskTrampoline, control->config.name.c_str(), static_cast<uint32_t>(stackBytes), control.get(), control->config.priority, control->externalStack, control->externalTaskBuffer, control->config.coreId);
         createResult = control->taskHandle ? pdPASS : pdFAIL;
     } else {
-        createResult = xTaskCreatePinnedToCore(taskTrampoline, control->config.name.c_str(), control->config.stackSize, control.get(), control->config.priority, &control->taskHandle, control->config.coreId);
+        createResult = xTaskCreatePinnedToCore(taskTrampoline, control->config.name.c_str(), static_cast<uint32_t>(stackBytes), control.get(), control->config.priority, &control->taskHandle, control->config.coreId);
     }
 
     if (createResult != pdPASS) {
