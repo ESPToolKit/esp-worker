@@ -105,6 +105,43 @@ WorkerHandler::Impl::~Impl() {
     }
 }
 
+ESPWorker::~ESPWorker() {
+    deinit();
+}
+
+void ESPWorker::deinit() {
+    std::vector<std::shared_ptr<WorkerHandler::Impl>> controls;
+    {
+        std::lock_guard<std::mutex> guard(_mutex);
+        controls = _activeControls;
+    }
+
+    for (auto &control : controls) {
+        if (!control) {
+            continue;
+        }
+
+        if (control->taskHandle && xTaskGetCurrentTaskHandle() != control->taskHandle) {
+            vTaskDelete(control->taskHandle);
+        }
+        finalizeWorker(control, true);
+        control->owner = nullptr;
+    }
+
+    {
+        std::lock_guard<std::mutex> guard(_mutex);
+        _activeControls.clear();
+    }
+
+    {
+        std::lock_guard<std::mutex> guard(_callbackMutex);
+        _eventCallback = nullptr;
+        _errorCallback = nullptr;
+    }
+
+    _initialized = false;
+}
+
 bool WorkerHandler::valid() const { return static_cast<bool>(_control); }
 
 JobDiag WorkerHandler::getDiag() const {

@@ -100,8 +100,10 @@ class ESPWorker {
     };
 
     ESPWorker() = default;
+    ~ESPWorker();
 
     void init(const Config &config);
+    void deinit();
 
     WorkerResult spawn(TaskCallback callback, const WorkerConfig &config = WorkerConfig{});
     WorkerResult spawnExt(TaskCallback callback, const WorkerConfig &config = WorkerConfig{});
