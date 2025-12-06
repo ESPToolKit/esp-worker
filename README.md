@@ -104,3 +104,4 @@ ESPWorker is released under the [MIT License](LICENSE.md).
 - Check out other libraries: <https://github.com/orgs/ESPToolKit/repositories>
 - Hang out on Discord: <https://discord.gg/WG8sSqAy>
 - Support the project: <https://ko-fi.com/esptoolkit>
+- Visit the website: <https://www.esptoolkit.hu/>
