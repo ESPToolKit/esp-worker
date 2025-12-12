@@ -17,7 +17,7 @@ All notable changes to this project will be documented in this file.
 ### Documentation
 - Expanded the README with recipes for waiting on jobs, spawning function jobs, PSRAM usage, configuration, and error handling guidance.
 
-## [1.0.1] - 2025-09-16
+## [1.0.1] - 2025-09-25
 
 ### Added
 - Introduced the `examples/basic_lambda_worker` sketch covering minimal worker setup and join flow.
