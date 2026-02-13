@@ -6,13 +6,19 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Expose pooled worker metrics via new `ESPWorker::getDiag()` and an expanded `WorkerDiag` struct for aggregated statistics.
+- Added `WorkerError::ExternalStackUnsupported` for explicit PSRAM stack capability failures.
 
 ### Changed
 - Breaking: `WorkerHandler::getDiag()` now returns a `JobDiag`; rename existing `WorkerDiag` usages to the new type.
 - Breaking: The inline global `worker` instance has been removed—declare your own `ESPWorker` (or subclass) before spawning tasks.
+- Breaking: renamed `WorkerConfig::stackSize` and `ESPWorker::Config::stackSize` to `stackSizeBytes` (units are now explicit bytes).
+- `spawnExt` now uses `xTaskCreatePinnedToCoreWithCaps(...)` instead of manual stack/TCB allocation.
+- Worker control state (`WorkerHandler::Impl`) is now allocated in internal RAM.
 
 ### Fixed
-- Free external stacks and task buffers through an idle-hook-driven deferred queue so PSRAM resources are only released after worker tasks fully unwind.
+- Removed idle-hook deferred free logic and custom PSRAM stack lifecycle queue.
+- Deterministic deletion path now uses `vTaskDeleteWithCaps(...)` for caps-created tasks and `vTaskDelete(...)` for standard tasks.
+- Added stack-size validation guards (`>= 1024` bytes and `StackType_t` alignment) before task creation.
 
 ### Documentation
 - Expanded the README with recipes for waiting on jobs, spawning function jobs, PSRAM usage, configuration, and error handling guidance.

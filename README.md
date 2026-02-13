@@ -28,7 +28,7 @@ void setup() {
 
     worker.init({
         .maxWorkers = 4,
-        .stackSize = 4096,
+        .stackSizeBytes = 4096,
         .priority = 1,
         .coreId = tskNO_AFFINITY,
         .enableExternalStacks = true,
@@ -46,7 +46,7 @@ void setup() {
             vTaskDelay(pdMS_TO_TICKS(250));
         }
     }, {
-        .stackSize = 16 * 1024,
+        .stackSizeBytes = 16 * 1024,
         .priority = 3,
         .name = "sensor-task",
     });
@@ -74,19 +74,19 @@ Check the runnable examples under `examples/`:
 ## Gotchas
 - Always call `worker.init()` once before spawning tasks. Each ESPWorker instance controls its own limits.
 - `spawn` creates persistent FreeRTOS tasks; remember to end the lambda (return) or `destroy()` the handler to reclaim slots.
-- Errors such as `MaxWorkersReached` or `TaskCreateFailed` are reported in the returned `WorkerResult` _and_ via the error callback.
-- PSRAM stacks require PSRAM to be enabled in your board configuration; fall back to internal RAM otherwise.
+- Errors such as `MaxWorkersReached`, `TaskCreateFailed`, or `ExternalStackUnsupported` are reported in the returned `WorkerResult` _and_ via the error callback.
+- PSRAM stack requests fail fast with `ExternalStackUnsupported` when caps-based task allocation is unavailable, PSRAM is missing, or external stacks are disabled.
 
 ## API Reference
-- `void init(const ESPWorker::Config& config)` – sets defaults (max workers, default stack/priority/core, PSRAM allowance).
+- `void init(const ESPWorker::Config& config)` – sets defaults (max workers, default stack-bytes/priority/core, PSRAM allowance).
 - `WorkerResult spawn(TaskCallback cb, const WorkerConfig& config = {})` – create a worker. The returned handler provides `wait()` and `destroy()` helpers plus per-job diagnostics.
-- `WorkerResult spawnExt(...)` – identical to `spawn` but forces PSRAM stacks when available.
+- `WorkerResult spawnExt(...)` – identical to `spawn` but forces PSRAM stacks using `xTaskCreatePinnedToCoreWithCaps(...)`.
 - `size_t activeWorkers() const` / `void cleanupFinished()` – query or prune finished tasks.
 - `WorkerDiag getDiag() const` – aggregated counts and runtime stats across the pool.
 - `void onEvent(EventCallback cb)` / `void onError(ErrorCallback cb)` – receive lifecycle signals (`Created → Started → Completed/Destroyed`) and fatal issues.
 - `const char* eventToString(...)` / `errorToString(...)` – convert enums to printable text for logging.
 
-`WorkerConfig` (per job) and `ESPWorker::Config` (global defaults) expose priority, stack size, core affinity, external stack usage, and an optional name that shows up in diagnostics and watchdog dumps.
+`WorkerConfig` (per job) and `ESPWorker::Config` (global defaults) expose priority, stack size bytes, core affinity, external stack usage, and an optional name that shows up in diagnostics and watchdog dumps.
 Stack sizes are expressed in bytes.
 
 ## Restrictions

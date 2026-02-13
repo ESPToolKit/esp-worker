@@ -4,68 +4,96 @@
 #include <atomic>
 #include <cstdio>
 #include <mutex>
+#include <new>
 #include <utility>
 #include <vector>
 
 extern "C" {
 #include "esp_heap_caps.h"
-#include "esp_freertos_hooks.h"
 }
+
+#if __has_include("freertos/idf_additions.h")
+extern "C" {
+#include "freertos/idf_additions.h"
+}
+#define ESPWORKER_HAS_IDF_TASK_CAPS 1
+#else
+#define ESPWORKER_HAS_IDF_TASK_CAPS 0
+#endif
+
+#if ESPWORKER_HAS_IDF_TASK_CAPS && defined(configSUPPORT_STATIC_ALLOCATION) && (configSUPPORT_STATIC_ALLOCATION == 1) && defined(MALLOC_CAP_SPIRAM)
+#define ESPWORKER_CAN_USE_EXTERNAL_STACKS 1
+#else
+#define ESPWORKER_CAN_USE_EXTERNAL_STACKS 0
+#endif
 
 namespace {
-struct DeferredFree {
-    StackType_t *stack{nullptr};
-    StaticTask_t *tcb{nullptr};
-};
+constexpr size_t kMinStackSizeBytes = 1024;
+constexpr UBaseType_t kInternalCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+#if defined(MALLOC_CAP_SPIRAM)
+constexpr UBaseType_t kExternalStackCaps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+#else
+constexpr UBaseType_t kExternalStackCaps = MALLOC_CAP_8BIT;
+#endif
 
-std::mutex &deferredMutex() {
-    static std::mutex mutex;
-    return mutex;
-}
-
-std::vector<DeferredFree> &deferredList() {
-    static std::vector<DeferredFree> list;
-    return list;
-}
-
-void scheduleDeferredFree(StackType_t *stack, StaticTask_t *tcb) {
-    if (!stack && !tcb) {
-        return;
-    }
-    std::lock_guard<std::mutex> guard(deferredMutex());
-    deferredList().push_back({stack, tcb});
-}
-
-bool idleDeferredFreeHook() {
-    std::vector<DeferredFree> pending;
-    {
-        std::lock_guard<std::mutex> guard(deferredMutex());
-        if (deferredList().empty()) {
-            return true;
-        }
-        pending.swap(deferredList());
+template <typename T, typename... Args>
+std::shared_ptr<T> makeInternalShared(Args &&...args) {
+    void *raw = heap_caps_malloc(sizeof(T), kInternalCaps);
+    if (!raw) {
+        return {};
     }
 
-    for (auto &entry : pending) {
-        if (entry.stack) {
-            heap_caps_free(entry.stack);
+    T *object = new (raw) T(std::forward<Args>(args)...);
+    return std::shared_ptr<T>(object, [](T *ptr) {
+        if (!ptr) {
+            return;
         }
-        if (entry.tcb) {
-            heap_caps_free(entry.tcb);
-        }
-    }
-
-    return true;
-}
-
-void ensureIdleHookRegistered() {
-    static std::once_flag once;
-    std::call_once(once, []() {
-        esp_register_freertos_idle_hook_for_cpu(idleDeferredFreeHook, 0);
-        esp_register_freertos_idle_hook_for_cpu(idleDeferredFreeHook, 1);
+        ptr->~T();
+        heap_caps_free(ptr);
     });
 }
+
+bool hasExternalStackSupport() {
+#if ESPWORKER_CAN_USE_EXTERNAL_STACKS
+    return heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0;
+#else
+    return false;
+#endif
+}
+
+bool isValidStackConfig(size_t stackBytes) {
+    if (stackBytes < kMinStackSizeBytes) {
+        return false;
+    }
+    return (stackBytes % sizeof(StackType_t)) == 0;
+}
+
+void deleteTaskHandle(TaskHandle_t taskHandle, bool withCaps) {
+    if (!taskHandle) {
+        return;
+    }
+#if ESPWORKER_CAN_USE_EXTERNAL_STACKS
+    if (withCaps) {
+        vTaskDeleteWithCaps(taskHandle);
+        return;
+    }
+#endif
+    vTaskDelete(taskHandle);
+}
+
+void deleteCurrentTask(bool withCaps) {
+#if ESPWORKER_CAN_USE_EXTERNAL_STACKS
+    if (withCaps) {
+        vTaskDeleteWithCaps(xTaskGetCurrentTaskHandle());
+        return;
+    }
+#endif
+    vTaskDelete(nullptr);
+}
 }  // namespace
+
+static_assert(kESPWorkerDefaultStackSizeBytes >= kMinStackSizeBytes, "Default stack size must be at least 1024 bytes.");
+static_assert((kESPWorkerDefaultStackSizeBytes % sizeof(StackType_t)) == 0, "Default stack size must be aligned to StackType_t.");
 
 struct WorkerHandler::Impl {
     ESPWorker *owner{nullptr};
@@ -79,8 +107,7 @@ struct WorkerHandler::Impl {
     SemaphoreHandle_t completion{nullptr};
     StaticSemaphore_t completionBuffer{};
 
-    StackType_t *externalStack{nullptr};
-    StaticTask_t *externalTaskBuffer{nullptr};
+    bool createdWithCaps{false};
 
     std::atomic<bool> running{false};
     std::atomic<bool> destroyed{false};
@@ -97,11 +124,6 @@ WorkerHandler::Impl::~Impl() {
     if (completion) {
         vSemaphoreDelete(completion);
         completion = nullptr;
-    }
-    if (externalStack || externalTaskBuffer) {
-        scheduleDeferredFree(externalStack, externalTaskBuffer);
-        externalStack = nullptr;
-        externalTaskBuffer = nullptr;
     }
 }
 
@@ -122,7 +144,7 @@ void ESPWorker::deinit() {
         }
 
         if (control->taskHandle && xTaskGetCurrentTaskHandle() != control->taskHandle) {
-            vTaskDelete(control->taskHandle);
+            deleteTaskHandle(control->taskHandle, control->createdWithCaps);
         }
         finalizeWorker(control, true);
         control->owner = nullptr;
@@ -206,9 +228,8 @@ WorkerResult ESPWorker::spawn(TaskCallback callback, const WorkerConfig &config)
         init(Config{});
     }
     WorkerConfig effective = config;
-    effective.useExternalStack = effective.useExternalStack && _config.enableExternalStacks;
-    if (effective.stackSize == 0) {
-        effective.stackSize = _config.stackSize;
+    if (effective.stackSizeBytes == 0) {
+        effective.stackSizeBytes = _config.stackSizeBytes;
     }
     if (effective.priority == 0) {
         effective.priority = _config.priority;
@@ -235,7 +256,27 @@ WorkerResult ESPWorker::spawnInternal(TaskCallback &&callback, WorkerConfig conf
         return {WorkerError::InvalidConfig, {}, "Callback must be callable"};
     }
 
-    auto control = std::make_shared<WorkerHandler::Impl>();
+    if (!isValidStackConfig(config.stackSizeBytes)) {
+        notifyError(WorkerError::InvalidConfig);
+        return {WorkerError::InvalidConfig, {}, "stackSizeBytes must be >= 1024 and aligned to StackType_t"};
+    }
+
+    if (config.useExternalStack) {
+        if (!_config.enableExternalStacks) {
+            notifyError(WorkerError::ExternalStackUnsupported);
+            return {WorkerError::ExternalStackUnsupported, {}, "External stacks are disabled in ESPWorker::Config"};
+        }
+        if (!hasExternalStackSupport()) {
+            notifyError(WorkerError::ExternalStackUnsupported);
+            return {WorkerError::ExternalStackUnsupported, {}, "External stack mode is not supported on this target"};
+        }
+    }
+
+    auto control = makeInternalShared<WorkerHandler::Impl>();
+    if (!control) {
+        notifyError(WorkerError::NoMemory);
+        return {WorkerError::NoMemory, {}, "Failed to allocate worker control in internal RAM"};
+    }
     control->owner = this;
     control->callback = std::move(callback);
     control->config = std::move(config);
@@ -263,34 +304,29 @@ WorkerResult ESPWorker::spawnInternal(TaskCallback &&callback, WorkerConfig conf
         return {WorkerError::MaxWorkersReached, {}, "Maximum workers reached"};
     }
 
+    const size_t stackBytes = control->config.stackSizeBytes;
     BaseType_t createResult = pdFAIL;
-    const size_t stackBytes = control->config.stackSize;
 
     if (control->config.useExternalStack) {
-        ensureIdleHookRegistered();
-        control->externalStack = static_cast<StackType_t *>(heap_caps_malloc(stackBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-        control->externalTaskBuffer = static_cast<StaticTask_t *>(heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
-        if (!control->externalStack || !control->externalTaskBuffer) {
-            heap_caps_free(control->externalStack);
-            heap_caps_free(control->externalTaskBuffer);
-            {
-                std::lock_guard<std::mutex> guard(_mutex);
-                _activeControls.erase(std::remove_if(_activeControls.begin(), _activeControls.end(), [&](const auto &ptr) { return ptr.get() == control.get(); }), _activeControls.end());
-            }
-            notifyError(WorkerError::NoMemory);
-            return {WorkerError::NoMemory, {}, "Failed to allocate external stack"};
-        }
-
-        control->taskHandle = xTaskCreateStaticPinnedToCore(taskTrampoline, control->config.name.c_str(), static_cast<uint32_t>(stackBytes), control.get(), control->config.priority, control->externalStack, control->externalTaskBuffer, control->config.coreId);
-        createResult = control->taskHandle ? pdPASS : pdFAIL;
+#if ESPWORKER_CAN_USE_EXTERNAL_STACKS
+        createResult = xTaskCreatePinnedToCoreWithCaps(taskTrampoline,
+                                                       control->config.name.c_str(),
+                                                       static_cast<configSTACK_DEPTH_TYPE>(stackBytes),
+                                                       control.get(),
+                                                       control->config.priority,
+                                                       &control->taskHandle,
+                                                       control->config.coreId,
+                                                       kExternalStackCaps);
+        control->createdWithCaps = (createResult == pdPASS);
+#else
+        createResult = pdFAIL;
+#endif
     } else {
         createResult = xTaskCreatePinnedToCore(taskTrampoline, control->config.name.c_str(), static_cast<uint32_t>(stackBytes), control.get(), control->config.priority, &control->taskHandle, control->config.coreId);
+        control->createdWithCaps = false;
     }
 
     if (createResult != pdPASS) {
-        heap_caps_free(control->externalStack);
-        heap_caps_free(control->externalTaskBuffer);
-
         {
             std::lock_guard<std::mutex> guard(_mutex);
             _activeControls.erase(std::remove_if(_activeControls.begin(), _activeControls.end(), [&](const auto &ptr) { return ptr.get() == control.get(); }), _activeControls.end());
@@ -314,6 +350,7 @@ void ESPWorker::taskTrampoline(void *arg) {
         vTaskDelete(nullptr);
         return;
     }
+    const bool createdWithCaps = controlPtr->createdWithCaps;
 
     std::shared_ptr<WorkerHandler::Impl> control = controlPtr->self.lock();
     if (!control || !control->owner) {
@@ -323,7 +360,7 @@ void ESPWorker::taskTrampoline(void *arg) {
 
     control->owner->notifyEvent(WorkerEvent::Started);
     control->owner->runTask(std::move(control));
-    vTaskDelete(nullptr);
+    deleteCurrentTask(createdWithCaps);
 }
 
 void ESPWorker::runTask(std::shared_ptr<WorkerHandler::Impl> control) {
@@ -348,13 +385,7 @@ void ESPWorker::finalizeWorker(const std::shared_ptr<WorkerHandler::Impl> &contr
     control->running.store(false, std::memory_order_release);
     control->endTick = xTaskGetTickCount();
 
-    TaskHandle_t taskHandle = control->taskHandle;
-    bool freeExternalNow = true;
-    if (taskHandle && xTaskGetCurrentTaskHandle() == taskHandle) {
-        // The worker is finalizing itself, its stack is still in use until vTaskDelete runs.
-        freeExternalNow = false;
-    }
-    if (taskHandle) {
+    if (control->taskHandle) {
         control->taskHandle = nullptr;
     }
 
@@ -362,22 +393,9 @@ void ESPWorker::finalizeWorker(const std::shared_ptr<WorkerHandler::Impl> &contr
         xSemaphoreGive(control->completion);
     }
 
-    StackType_t *externalStack = nullptr;
-    StaticTask_t *externalTaskBuffer = nullptr;
-
     {
         std::lock_guard<std::mutex> guard(_mutex);
         _activeControls.erase(std::remove_if(_activeControls.begin(), _activeControls.end(), [&](const auto &ptr) { return ptr.get() == control.get(); }), _activeControls.end());
-        if (freeExternalNow) {
-            externalStack = control->externalStack;
-            control->externalStack = nullptr;
-            externalTaskBuffer = control->externalTaskBuffer;
-            control->externalTaskBuffer = nullptr;
-        }
-    }
-
-    if (freeExternalNow && (externalStack || externalTaskBuffer)) {
-        scheduleDeferredFree(externalStack, externalTaskBuffer);
     }
 
     notifyEvent(destroyed ? WorkerEvent::Destroyed : WorkerEvent::Completed);
@@ -402,7 +420,7 @@ bool ESPWorker::destroyWorker(const std::shared_ptr<WorkerHandler::Impl> &contro
         return false;
     }
 
-    vTaskDelete(control->taskHandle);
+    deleteTaskHandle(control->taskHandle, control->createdWithCaps);
     finalizeWorker(control, true);
     return true;
 }
@@ -512,6 +530,8 @@ const char *ESPWorker::errorToString(WorkerError error) const {
             return "TaskCreateFailed";
         case WorkerError::NoMemory:
             return "NoMemory";
+        case WorkerError::ExternalStackUnsupported:
+            return "ExternalStackUnsupported";
         default:
             return "Unknown";
     }
