@@ -135,7 +135,8 @@ void ESPWorker::deinit() {
     std::vector<std::shared_ptr<WorkerHandler::Impl>> controls;
     {
         std::lock_guard<std::mutex> guard(_mutex);
-        controls = _activeControls;
+        _initialized.store(false, std::memory_order_release);
+        controls.swap(_activeControls);
     }
 
     for (auto &control : controls) {
@@ -151,17 +152,10 @@ void ESPWorker::deinit() {
     }
 
     {
-        std::lock_guard<std::mutex> guard(_mutex);
-        _activeControls.clear();
-    }
-
-    {
         std::lock_guard<std::mutex> guard(_callbackMutex);
         _eventCallback = nullptr;
         _errorCallback = nullptr;
     }
-
-    _initialized = false;
 }
 
 bool WorkerHandler::valid() const { return static_cast<bool>(_control); }
@@ -220,7 +214,7 @@ bool WorkerHandler::destroy() {
 void ESPWorker::init(const Config &config) {
     std::lock_guard<std::mutex> guard(_mutex);
     _config = config;
-    _initialized = true;
+    _initialized.store(true, std::memory_order_release);
 }
 
 WorkerResult ESPWorker::spawn(TaskCallback callback, const WorkerConfig &config) {

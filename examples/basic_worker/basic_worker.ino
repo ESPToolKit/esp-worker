@@ -26,6 +26,8 @@ void setup() {
     auto testJob = worker.spawn(jobFunction);
 	testJob.handler->wait(); // Wait for the job to finish, indefinietly
 	Serial.println("[Worker] task is completed!");
+
+    worker.deinit();
 }
 
 void loop() {}
