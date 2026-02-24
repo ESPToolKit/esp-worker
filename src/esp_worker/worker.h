@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -107,6 +108,7 @@ class ESPWorker {
 
     void init(const Config &config);
     void deinit();
+    bool isInitialized() const { return _initialized.load(std::memory_order_acquire); }
 
     WorkerResult spawn(TaskCallback callback, const WorkerConfig &config = WorkerConfig{});
     WorkerResult spawnExt(TaskCallback callback, const WorkerConfig &config = WorkerConfig{});
@@ -134,7 +136,7 @@ class ESPWorker {
     void notifyError(WorkerError error);
 
     Config _config{};
-    bool _initialized = false;
+    std::atomic<bool> _initialized{false};
 
     mutable std::mutex _mutex;
     std::vector<std::shared_ptr<WorkerHandler::Impl>> _activeControls;

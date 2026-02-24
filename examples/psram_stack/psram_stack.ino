@@ -35,6 +35,8 @@ void setup() {
 
     testJob.handler->wait(); // Wait for the job to finish, indefinietly
     printPSRAM("After job completed");
+
+    worker.deinit();
 }
 
 void loop() {}

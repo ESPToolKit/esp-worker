@@ -42,9 +42,8 @@ void setup() {
     });
 
     WorkerResult result = worker.spawn([]() {
-        while (true) {
-            vTaskDelay(pdMS_TO_TICKS(250));
-        }
+        Serial.println("[worker] running");
+        vTaskDelay(pdMS_TO_TICKS(250));
     }, {
         .stackSizeBytes = 16 * 1024,
         .priority = 3,
@@ -52,8 +51,10 @@ void setup() {
     });
 
     if (result) {
-        result.handler->wait(pdMS_TO_TICKS(1000));
+        result.handler->wait(pdMS_TO_TICKS(1000));  // or destroy() for long-lived loops
     }
+
+    worker.deinit();
 }
 ```
 
@@ -73,12 +74,14 @@ Check the runnable examples under `examples/`:
 
 ## Gotchas
 - Always call `worker.init()` once before spawning tasks. Each ESPWorker instance controls its own limits.
+- Call `worker.deinit()` during shutdown/reset paths. It is safe before `init()` and safe to call repeatedly.
 - `spawn` creates persistent FreeRTOS tasks; remember to end the lambda (return) or `destroy()` the handler to reclaim slots.
 - Errors such as `MaxWorkersReached`, `TaskCreateFailed`, or `ExternalStackUnsupported` are reported in the returned `WorkerResult` _and_ via the error callback.
 - PSRAM stack requests fail fast with `ExternalStackUnsupported` when caps-based task allocation is unavailable, PSRAM is missing, or external stacks are disabled.
 
 ## API Reference
 - `void init(const ESPWorker::Config& config)` – sets defaults (max workers, default stack-bytes/priority/core, PSRAM allowance).
+- `void deinit()` / `bool isInitialized() const` – explicit teardown and lifecycle state checks; `deinit()` is idempotent and safe pre-init.
 - `WorkerResult spawn(TaskCallback cb, const WorkerConfig& config = {})` – create a worker. The returned handler provides `wait()` and `destroy()` helpers plus per-job diagnostics.
 - `WorkerResult spawnExt(...)` – identical to `spawn` but forces PSRAM stacks using `xTaskCreatePinnedToCoreWithCaps(...)`.
 - `size_t activeWorkers() const` / `void cleanupFinished()` – query or prune finished tasks.
