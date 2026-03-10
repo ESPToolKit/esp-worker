@@ -100,6 +100,13 @@ Stack sizes are expressed in bytes.
 ## Tests
 A native host test suite is still being assembled. For now rely on the `examples/` sketches (build with PlatformIO or Arduino IDE) to verify integration, and consider adding regression tests when contributing changes.
 
+## Formatting Baseline
+
+This repository follows the firmware formatting baseline from `esptoolkit-template`:
+- `.clang-format` is the source of truth for C/C++/INO layout.
+- `.editorconfig` enforces tabs (`tab_width = 4`), LF endings, and final newline.
+- Format all tracked firmware sources with `bash scripts/format_cpp.sh`.
+
 ## License
 ESPWorker is released under the [MIT License](LICENSE.md).
 
