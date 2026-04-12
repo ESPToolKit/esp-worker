@@ -90,6 +90,22 @@ void deleteCurrentTask(bool withCaps) {
 #endif
 	vTaskDelete(nullptr);
 }
+
+template <typename Callback, typename... Args>
+void invokeWorkerCallback(const Callback &callback, Args... args) noexcept {
+	if (!callback) {
+		return;
+	}
+
+#if defined(__cpp_exceptions)
+	try {
+		callback(args...);
+	} catch (...) {
+	}
+#else
+	callback(args...);
+#endif
+}
 } // namespace
 
 static_assert(
@@ -398,7 +414,7 @@ void ESPWorker::taskTrampoline(void *arg) {
 void ESPWorker::runTask(std::shared_ptr<WorkerHandler::Impl> control) {
 	auto callback = std::move(control->callback);
 	if (callback) {
-		callback();
+		invokeWorkerCallback(callback);
 	}
 	finalizeWorker(control, false);
 }
@@ -597,7 +613,7 @@ void ESPWorker::notifyEvent(WorkerEvent event) {
 		callback = _eventCallback;
 	}
 	if (callback) {
-		callback(event);
+		invokeWorkerCallback(callback, event);
 	}
 }
 
@@ -611,6 +627,6 @@ void ESPWorker::notifyError(WorkerError error) {
 		callback = _errorCallback;
 	}
 	if (callback) {
-		callback(error);
+		invokeWorkerCallback(callback, error);
 	}
 }
