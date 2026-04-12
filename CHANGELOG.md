@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 - Removed idle-hook deferred free logic and custom PSRAM stack lifecycle queue.
 - Deterministic deletion path now uses `vTaskDeleteWithCaps(...)` for caps-created tasks and `vTaskDelete(...)` for standard tasks.
 - Added stack-size validation guards (`>= 1024` bytes and `StackType_t` alignment) before task creation.
+- CI now pins PIOArduino Core to `v6.1.19` and installs the ESP32 platform via `pio pkg install`, restoring PlatformIO compatibility with the current `platform-espressif32` package.
 
 ### Documentation
 - Expanded the README with recipes for waiting on jobs, spawning function jobs, PSRAM usage, configuration, and error handling guidance.
