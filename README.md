@@ -1,3 +1,10 @@
+> [!WARNING]
+> This repository is deprecated and no longer maintained.
+>
+> Development continues in the completely reworked repository:
+> **[ZekStack/Worker](https://github.com/ZekStack/worker)**
+>
+> 
 # ESPWorker
 
 ESPWorker is a C++17 helper library for ESP32 projects that want FreeRTOS power without the boilerplate. It wraps task creation, joins, diagnostics, PSRAM stacks, and lifecycle events into a simple API that works with both Arduino-ESP32 and ESP-IDF.
